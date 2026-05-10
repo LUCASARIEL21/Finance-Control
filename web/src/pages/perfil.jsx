@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../services/api";
 import { useNavigate } from "react-router-dom";
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { FaHouse } from "react-icons/fa6";
 
 function Perfil() {
   const [user, setUser] = useState({ nome: "", dataNascimento: "", email: "" });
@@ -19,75 +20,70 @@ function Perfil() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-          const token = localStorage.getItem('token');
-          if (!token) {
-              console.error("Usuário não autenticado");
-              return;
-          }
-  
-          const response = await axios.get('http://localhost:5000/api/perfil', {
-              headers: { Authorization: `Bearer ${token}` }
-          });
-  
-          setUser(response.data);
+        const token = localStorage.getItem("token");
+        if (!token) {
+          navigate("/"); 
+          return;
+        }
+
+        const response = await api.get('/perfil', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        setUser(response.data);
       } catch (error) {
-          console.error("Erro ao buscar dados do usuário", error.response?.data || error.message);
+        console.error(
+          "Erro ao buscar dados do usuário",
+          error.response?.data || error.message
+        );
+        navigate("/");
       }
     };
 
     fetchUser();
-  }, []);
-
-  if (!user) {
-    return <p>Carregando...</p>;
-  }
+  }, [navigate]);
 
   const handlePasswordChange = async () => {
     if (novaSenha !== confirmarSenha) {
       alert("As senhas não coincidem!");
       return;
     }
-  
+
     try {
       const token = localStorage.getItem("token");
-      
+
       if (!token) {
         alert("Token não encontrado. Você precisa estar autenticado.");
+        navigate("/");
         return;
       }
-  
-      const response = await axios.put(
-        "http://localhost:5000/api/trocar-senha",
-        {
-          senhaAtual,
-          novaSenha,
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+
+      await api.put(
+        '/trocar-senha',
+        { senhaAtual, novaSenha },
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-  
+
       alert("Senha alterada com sucesso!");
     } catch (error) {
-      console.error("Erro ao alterar senha", error.response?.data || error.message);
+      console.error(
+        "Erro ao alterar senha",
+        error.response?.data || error.message
+      );
       alert(`Erro: ${error.response?.data?.mensagem || error.message}`);
     }
   };
-  
 
   const handleGoHome = () => {
-    navigate('/home');
+    navigate("/home");
   };
 
   return (
     <div className="flex flex-col items-center font-sans bg-gray-200 min-h-screen">
       <header className="bg-teal-600 text-white w-full py-6 flex justify-between items-center px-6">
         <h1 className="text-2xl font-bold">Perfil do Usuário</h1>
-        <button
-          onClick={handleGoHome}
-          className="bg-teal-500 text-white px-4 py-2 rounded-md hover:bg-teal-600"
-        >
-          Home
+        <button onClick={handleGoHome}>
+          <FaHouse className="text-3xl" />
         </button>
       </header>
       <div className="bg-white p-6 mt-6 w-11/12 max-w-2xl rounded-md shadow-md text-black">

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../services/api';
 import { FaArrowUp, FaArrowDown, FaTrash, FaUserCircle } from 'react-icons/fa';
 import '../index.css';
 
@@ -11,43 +11,53 @@ function Home() {
   const [tipo, setTipo] = useState('entrada');
   const [user, setUser] = useState(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [loading, setLoading] = useState(true); // Adicionado para evitar carregamento antes da verificação
   const navigate = useNavigate();
 
   useEffect(() => {
     const fetchUserData = async () => {
+      const token = localStorage.getItem('token');
+
+      if (!token) {
+        setLoading(false);
+        navigate('/');
+        return;
+      }
+
       try {
-        const token = localStorage.getItem('token');
-        if (!token) return navigate('/');
-        
-        const response = await axios.get('http://localhost:5000/api/user', {
+        const response = await api.get('/user', {
           headers: { Authorization: `Bearer ${token}` },
         });
 
         setUser(response.data);
       } catch (error) {
         console.error('Erro ao buscar dados do usuário:', error.response?.data || error.message);
+        localStorage.removeItem('token'); // Remove token inválido
+        navigate('/'); // Redireciona para login
+      } finally {
+        setLoading(false);
       }
     };
 
     fetchUserData();
   }, [navigate]);
 
-  const fetchTransactions = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
-      const response = await axios.get("http://localhost:5000/api/transactions", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      setTransactions(response.data);
-    } catch (error) {
-      console.error("Erro ao buscar transações:", error.response?.data || error.message);
-    }
-  };
-
   useEffect(() => {
+    const fetchTransactions = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const response = await api.get('/transactions', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        setTransactions(response.data);
+      } catch (error) {
+        console.error("Erro ao buscar transações:", error.response?.data || error.message);
+      }
+    };
+
     fetchTransactions();
   }, []);
 
@@ -57,7 +67,7 @@ function Home() {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const response = await axios.post("http://localhost:5000/api/transactions", {
+      const response = await api.post('/transactions', {
         descricao,
         valor: parseFloat(valor),
         tipo,
@@ -79,7 +89,7 @@ function Home() {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      await axios.delete(`http://localhost:5000/api/transactions/${id}`, {
+      await api.delete(`/transactions/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -94,6 +104,10 @@ function Home() {
     navigate('/');
   };
 
+  if (loading) {
+    return <div className="text-center mt-10 text-xl">Carregando...</div>;
+  }
+
   const totalIncome = transactions.filter(t => t.tipo === 'entrada').reduce((acc, curr) => acc + curr.valor, 0);
   const totalExpense = transactions.filter(t => t.tipo === 'saida').reduce((acc, curr) => acc + curr.valor, 0);
   const totalBalance = totalIncome - totalExpense;
@@ -101,7 +115,7 @@ function Home() {
   return (
     <div className='flex flex-col items-center font-sans bg-gray-200 min-h-screen'>
       <header className='bg-teal-600 text-white w-full py-14 text-center text-2xl font-bold flex justify-between px-10'>
-        Controle Financeiro
+        Finwise
         <div className='relative'>
           <button onClick={() => setDropdownOpen(!dropdownOpen)}>
             <FaUserCircle className='text-3xl' />
@@ -114,9 +128,9 @@ function Home() {
           )}
         </div>
       </header>
-      
+  
       {/* Cards de resumo */}
-      <div className='w-11/12 max-w-4xl grid grid-cols-3 gap-4 -mt-7'>
+      <div className='w-11/12 max-w-4xl grid sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 -mt-7'>
         <div className='bg-white p-4 rounded-md text-center shadow-md'>
           <p className='text-gray-600'>Entradas</p>
           <p className='text-xl font-bold'>R$ {totalIncome.toFixed(2)}</p>
@@ -132,10 +146,10 @@ function Home() {
           <p className='text-xl font-bold'>R$ {totalBalance.toFixed(2)}</p>
         </div>
       </div>
-
+  
       {/* Formulário de transação */}
       <div className='bg-white p-4 mt-6 w-11/12 max-w-4xl rounded-md shadow-md'>
-        <div className='flex gap-4'>
+        <div className='flex flex-col sm:flex-row gap-4'>
           <input type='text' placeholder='Descrição' value={descricao} onChange={(e) => setDescricao(e.target.value)} className='border p-2 flex-1 rounded-md' required/>
           <input type='number' placeholder='Valor' value={valor} onChange={(e) => setValor(e.target.value)} className='border p-2 w-32 rounded-md' required/>
           <div className='flex items-center gap-2'>
@@ -149,7 +163,7 @@ function Home() {
           <button onClick={handleAddTransaction} className='bg-teal-500 text-white px-4 py-2 rounded-md hover:bg-teal-600'>Adicionar</button>
         </div>
       </div>
-
+  
       {/* Lista de transações */}
       <div className='w-11/12 max-w-4xl mt-6'>
         <h2 className='text-2xl font-bold text-teal-600'>Transações</h2>
@@ -175,6 +189,6 @@ function Home() {
       </div>
     </div>
   );
-}
+}  
 
 export default Home;

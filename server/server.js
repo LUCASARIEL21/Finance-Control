@@ -1,29 +1,41 @@
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
-const connectDB = require("./database/db");
-const authRoutes = require('./routes/authRoutes');
+const { connectDB } = require("./database/db");
 const transactionRoutes = require("./routes/transactionRoutes");
+const authRoutes = require("./routes/authRoutes");
 
 dotenv.config();
-connectDB();
 
 const app = express();
 app.use(express.json());
 
-app.use(cors({
-    origin: 'http://localhost:5173',
-    credentials: true 
-  }));
+const allowedOrigins = [
+  'https://finance-control-dev.netlify.app',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+].filter(Boolean);
 
-app.use('/api', authRoutes);
-app.use("/api/auth", require("./routes/authRoutes"));
-app.use("/api/login", require("./routes/authRoutes"));
-app.use("/api/perfil", require("./routes/authRoutes"));
-app.use("/api/trocar-senha", require("./routes/authRoutes"));
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('Origem não permitida pelo CORS'));
+  },
+  credentials: true,
+}));
+
+app.use("/api", authRoutes);
 
 app.use("/api", transactionRoutes);
-app.use("/api/transactions", require("./routes/transactionRoutes"));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+
+const startServer = async () => {
+  await connectDB();
+  app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+};
+
+startServer();
