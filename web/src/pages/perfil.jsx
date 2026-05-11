@@ -3,14 +3,21 @@ import api from "../services/api";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { FaCalendarAlt, FaEnvelope, FaEye, FaEyeSlash, FaLock, FaUser } from "react-icons/fa";
 import { FaHouse } from "react-icons/fa6";
+import { useToast } from "../components/ToastProvider";
 
 function Perfil() {
   const [user, setUser] = useState({ nome: "", dataNascimento: "", email: "" });
   const [senhaAtual, setSenhaAtual] = useState("");
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmarSenha, setConfirmarSenha] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [showSenhaAtual, setShowSenhaAtual] = useState(false);
+  const [showNovaSenha, setShowNovaSenha] = useState(false);
+  const [showConfirmarSenha, setShowConfirmarSenha] = useState(false);
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const formatarData = (dataISO) => {
     if (!dataISO) return "";
@@ -45,15 +52,28 @@ function Perfil() {
 
   const handlePasswordChange = async () => {
     if (novaSenha !== confirmarSenha) {
-      alert("As senhas não coincidem!");
+      toast("As senhas nao coincidem.", "error");
+      return;
+    }
+
+    const senhaForte =
+      novaSenha.length >= 12 &&
+      /[A-Z]/.test(novaSenha) &&
+      /[a-z]/.test(novaSenha) &&
+      /\d/.test(novaSenha) &&
+      /[^A-Za-z0-9]/.test(novaSenha);
+
+    if (!senhaForte) {
+      toast("Use uma senha forte com 12+ caracteres, maiuscula, minuscula, numero e especial.", "error");
       return;
     }
 
     try {
+      setSavingPassword(true);
       const token = localStorage.getItem("token");
 
       if (!token) {
-        alert("Token não encontrado. Você precisa estar autenticado.");
+        toast("Token nao encontrado. Faca login novamente.", "error");
         navigate("/");
         return;
       }
@@ -64,13 +84,18 @@ function Perfil() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      alert("Senha alterada com sucesso!");
+      toast("Senha alterada com sucesso!", "success");
+      setSenhaAtual("");
+      setNovaSenha("");
+      setConfirmarSenha("");
     } catch (error) {
       console.error(
         "Erro ao alterar senha",
         error.response?.data || error.message
       );
-      alert(`Erro: ${error.response?.data?.mensagem || error.message}`);
+      toast(error.response?.data?.mensagem || "Erro ao alterar senha.", "error");
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -78,59 +103,144 @@ function Perfil() {
     navigate("/home");
   };
 
+  const initials = user.nome
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+
   return (
-    <div className="flex flex-col items-center font-sans bg-gray-200 min-h-screen">
-      <header className="bg-teal-600 text-white w-full py-6 flex justify-between items-center px-6">
-        <h1 className="text-2xl font-bold">Perfil do Usuário</h1>
-        <button onClick={handleGoHome}>
-          <FaHouse className="text-3xl" />
-        </button>
-      </header>
-      <div className="bg-white p-6 mt-6 w-11/12 max-w-2xl rounded-md shadow-md text-black">
-        <h2 className="text-xl font-bold text-teal-600 mb-4">
-          Informações Pessoais
-        </h2>
-        <p>
-          <strong>Nome:</strong> {user.nome}
-        </p>
-        <p>
-          <strong>Data de Nascimento:</strong> {formatarData(user.dataNascimento)}
-        </p>
-        <p>
-          <strong>Email:</strong> {user.email}
-        </p>
+    <main className="app-shell">
+      <div className="mx-auto max-w-5xl space-y-5">
+        <header className="panel flex items-center justify-between bg-gradient-to-r from-cyan-700 to-teal-600 px-5 py-4 text-white">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-cyan-100">Conta</p>
+            <h1 className="text-2xl font-extrabold">Perfil do usuario</h1>
+          </div>
+
+          <button onClick={handleGoHome} className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20" type="button">
+            <span className="inline-flex items-center gap-2">
+              <FaHouse />
+              <span>Voltar</span>
+            </span>
+          </button>
+        </header>
+
+        <section className="grid gap-5 lg:grid-cols-[1.1fr_1fr]">
+          <article className="panel p-5 sm:p-6">
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-100 text-lg font-extrabold text-teal-700">
+                {initials || 'U'}
+              </div>
+              <div>
+                <h2 className="text-xl font-extrabold text-slate-900">Informacoes pessoais</h2>
+                <p className="text-sm text-slate-500">Dados do seu cadastro.</p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3">
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500"><FaUser /> Nome</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800">{user.nome || '--'}</p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500"><FaCalendarAlt /> Data de nascimento</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800">{formatarData(user.dataNascimento) || '--'}</p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-3">
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500"><FaEnvelope /> E-mail</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800 break-all">{user.email || '--'}</p>
+              </div>
+            </div>
+          </article>
+
+          <article className="panel p-5 sm:p-6">
+            <h2 className="text-xl font-extrabold text-slate-900">Seguranca</h2>
+            <p className="text-sm text-slate-500">Atualize sua senha com criterios fortes de protecao.</p>
+
+            <div className="mt-4 space-y-3">
+              <div className="relative">
+                <input
+                  type={showSenhaAtual ? 'text' : 'password'}
+                  placeholder="Senha atual"
+                  value={senhaAtual}
+                  onChange={(e) => setSenhaAtual(e.target.value)}
+                  className="field pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSenhaAtual((prev) => !prev)}
+                  aria-label={showSenhaAtual ? 'Ocultar senha atual' : 'Mostrar senha atual'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+                >
+                  {showSenhaAtual ? <FaEyeSlash /> : <FaEye />}
+                </button>
+              </div>
+
+              <div className="relative">
+                <input
+                  type={showNovaSenha ? 'text' : 'password'}
+                  placeholder="Nova senha"
+                  value={novaSenha}
+                  onChange={(e) => setNovaSenha(e.target.value)}
+                  className="field pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNovaSenha((prev) => !prev)}
+                  aria-label={showNovaSenha ? 'Ocultar nova senha' : 'Mostrar nova senha'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+                >
+                  {showNovaSenha ? <FaEyeSlash /> : <FaEye />}
+                </button>
+              </div>
+
+              <div className="relative">
+                <input
+                  type={showConfirmarSenha ? 'text' : 'password'}
+                  placeholder="Confirmar nova senha"
+                  value={confirmarSenha}
+                  onChange={(e) => setConfirmarSenha(e.target.value)}
+                  className="field pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmarSenha((prev) => !prev)}
+                  aria-label={showConfirmarSenha ? 'Ocultar confirmacao de senha' : 'Mostrar confirmacao de senha'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-600"
+                >
+                  {showConfirmarSenha ? <FaEyeSlash /> : <FaEye />}
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                <p className="font-bold uppercase tracking-wider text-slate-500">Regras</p>
+                <ul className="mt-2 space-y-1">
+                  <li>Minimo de 12 caracteres</li>
+                  <li>Maiuscula, minuscula, numero e especial</li>
+                  <li>Confirmacao igual a nova senha</li>
+                </ul>
+              </div>
+
+              <button
+                onClick={handlePasswordChange}
+                className="btn-primary w-full"
+                type="button"
+                disabled={savingPassword}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <FaLock />
+                  {savingPassword ? 'Salvando...' : 'Alterar senha'}
+                </span>
+              </button>
+            </div>
+          </article>
+        </section>
       </div>
-      <div className="bg-white p-6 mt-6 w-11/12 max-w-2xl rounded-md shadow-md">
-        <h2 className="text-xl font-bold text-teal-600 mb-4">Alterar Senha</h2>
-        <input
-          type="password"
-          placeholder="Senha Atual"
-          value={senhaAtual}
-          onChange={(e) => setSenhaAtual(e.target.value)}
-          className="border p-2 w-full rounded-md mb-2"
-        />
-        <input
-          type="password"
-          placeholder="Nova Senha"
-          value={novaSenha}
-          onChange={(e) => setNovaSenha(e.target.value)}
-          className="border p-2 w-full rounded-md mb-2"
-        />
-        <input
-          type="password"
-          placeholder="Confirmar Nova Senha"
-          value={confirmarSenha}
-          onChange={(e) => setConfirmarSenha(e.target.value)}
-          className="border p-2 w-full rounded-md mb-4"
-        />
-        <button
-          onClick={handlePasswordChange}
-          className="bg-teal-500 text-white px-4 py-2 w-full rounded-md hover:bg-teal-600"
-        >
-          Alterar Senha
-        </button>
-      </div>
-    </div>
+    </main>
   );
 }
 

@@ -1,8 +1,11 @@
 import RoutesApp from './routes';
+import { ToastProvider } from './components/ToastProvider';
 
 function App() {
   return (
-    <RoutesApp />
+    <ToastProvider>
+      <RoutesApp />
+    </ToastProvider>
   );
 }
 

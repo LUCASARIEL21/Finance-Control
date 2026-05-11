@@ -4,6 +4,10 @@ const dotenv = require("dotenv");
 const { connectDB } = require("./database/db");
 const transactionRoutes = require("./routes/transactionRoutes");
 const authRoutes = require("./routes/authRoutes");
+const analyticsRoutes = require("./routes/analyticsRoutes");
+const reportsRoutes = require("./routes/reportsRoutes");
+const investmentsRoutes = require("./routes/investmentsRoutes");
+const taxRoutes = require("./routes/taxRoutes");
 
 dotenv.config();
 
@@ -30,6 +34,10 @@ app.use(cors({
 app.use("/api", authRoutes);
 
 app.use("/api", transactionRoutes);
+app.use("/api", analyticsRoutes);
+app.use("/api", reportsRoutes);
+app.use("/api", investmentsRoutes);
+app.use("/api", taxRoutes);
 
 const PORT = process.env.PORT || 5000;
 

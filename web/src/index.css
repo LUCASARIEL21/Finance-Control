@@ -1,4 +1,91 @@
-/* ./src/index.css */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+	:root {
+		--bg-main: #f5f7fb;
+		--bg-soft: #ffffff;
+		--ink-main: #0f172a;
+		--ink-soft: #475569;
+		--brand: #0f766e;
+		--brand-strong: #115e59;
+		--accent: #f59e0b;
+		--danger: #dc2626;
+		--ok: #16a34a;
+		--border: #dbe2ea;
+	}
+
+	* {
+		@apply antialiased;
+	}
+
+	body {
+		margin: 0;
+		min-height: 100vh;
+		background: radial-gradient(circle at top, #e8f7f2 0%, var(--bg-main) 52%);
+		color: var(--ink-main);
+		font-family: 'Manrope', sans-serif;
+	}
+
+	h1,
+	h2,
+	h3,
+	h4 {
+		font-family: 'Outfit', sans-serif;
+		letter-spacing: -0.02em;
+	}
+
+	button:focus-visible,
+	input:focus-visible {
+		@apply outline-none ring-2 ring-offset-2 ring-teal-500;
+	}
+}
+
+@layer components {
+	.app-shell {
+		@apply min-h-screen px-4 py-6 sm:px-6 lg:px-8;
+	}
+
+	.panel {
+		@apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+	}
+
+	.field {
+		@apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-700 transition focus:border-teal-500;
+	}
+
+	.btn-primary {
+		@apply rounded-xl bg-teal-600 px-4 py-2.5 font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60;
+	}
+
+	.btn-ghost {
+		@apply rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-700 transition hover:bg-slate-50;
+	}
+
+	.kpi-card {
+		@apply panel p-4 sm:p-5;
+	}
+
+	.toast-stack {
+		@apply fixed right-4 top-4 z-50 flex w-[min(360px,92vw)] flex-col gap-2;
+	}
+
+	.toast {
+		@apply rounded-xl border bg-white px-4 py-3 text-sm font-semibold shadow-lg;
+	}
+
+	.toast-success {
+		@apply border-emerald-200 text-emerald-800;
+	}
+
+	.toast-error {
+		@apply border-rose-200 text-rose-800;
+	}
+
+	.toast-info {
+		@apply border-slate-200 text-slate-700;
+	}
+}
