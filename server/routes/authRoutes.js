@@ -10,6 +10,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NOME_REGEX = /^[A-Za-zÀ-ÖØ-öø-ÿ'\-\s]+$/u;
 
 const normalizeName = (nome) => nome.trim().replace(/\s+/g, ' ');
+const AUTH_ERROR_MESSAGE = 'Credenciais inválidas.';
 
 const isValidBirthDate = (birthDate) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return false;
@@ -122,28 +123,51 @@ router.post('/login', async (req, res) => {
     const { email, senha } = req.body;
 
     try {
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({ error: 'Configuração de autenticação ausente.' });
+        }
+
         const result = await pool.query(
             'SELECT id, senha FROM users WHERE email = $1',
-            [email]
+            [email?.trim().toLowerCase()]
         );
 
         if (result.rowCount === 0) {
-            return res.status(401).json({ error: "Usuário não encontrado" });
+            return res.status(401).json({ error: AUTH_ERROR_MESSAGE });
         }
 
         const user = result.rows[0];
 
         const senhaCorreta = await bcrypt.compare(senha, user.senha);
         if (!senhaCorreta) {
-            return res.status(401).json({ error: "Credenciais inválidas" });
+            return res.status(401).json({ error: AUTH_ERROR_MESSAGE });
         }
 
         const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-        res.json({ token });
+        const isProduction = process.env.NODE_ENV === 'production';
+        res.cookie('auth_token', token, {
+            httpOnly: true,
+            secure: isProduction,
+            sameSite: isProduction ? 'none' : 'lax',
+            maxAge: 3_600_000,
+            path: '/',
+        });
+        res.json({ message: 'Login realizado com sucesso.' });
     } catch (error) {
         res.status(500).json({ error: "Erro no servidor" });
     }
+});
+
+router.post('/logout', (_req, res) => {
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.clearCookie('auth_token', {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? 'none' : 'lax',
+        path: '/',
+    });
+    res.json({ message: 'Sessão encerrada.' });
 });
 
 router.get('/perfil', authMiddleware, async (req, res) => {
@@ -172,7 +196,7 @@ router.put('/trocar-senha', authMiddleware, async (req, res) => {
   
     try {
             const result = await pool.query(
-                'SELECT id, senha FROM users WHERE id = $1',
+                'SELECT id, nome, data_nascimento, senha FROM users WHERE id = $1',
                 [req.user.id]
             );
 
@@ -186,6 +210,24 @@ router.put('/trocar-senha', authMiddleware, async (req, res) => {
       if (!match) {
         return res.status(401).json({ mensagem: "Senha atual incorreta." });
       }
+
+            if (senhaAtual === novaSenha) {
+                return res.status(400).json({ mensagem: 'A nova senha deve ser diferente da senha atual.' });
+            }
+
+            const passwordValidationError = validateRegisterInput({
+                nome: user.nome,
+                dataNascimento: user.data_nascimento instanceof Date
+                    ? user.data_nascimento.toISOString().split('T')[0]
+                    : String(user.data_nascimento),
+                email: 'validacao@interna.local',
+                senha: novaSenha,
+                confirmSenha: novaSenha,
+            });
+
+            if (passwordValidationError) {
+                return res.status(400).json({ mensagem: passwordValidationError });
+            }
   
             const novaSenhaHash = await bcrypt.hash(novaSenha, 10);
             await pool.query(

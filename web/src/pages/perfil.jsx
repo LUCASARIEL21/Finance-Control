@@ -27,15 +27,7 @@ function Perfil() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const token = localStorage.getItem("token");
-        if (!token) {
-          navigate("/"); 
-          return;
-        }
-
-        const response = await api.get('/perfil', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const response = await api.get('/perfil');
 
         setUser(response.data);
       } catch (error) {
@@ -70,19 +62,7 @@ function Perfil() {
 
     try {
       setSavingPassword(true);
-      const token = localStorage.getItem("token");
-
-      if (!token) {
-        toast("Token nao encontrado. Faca login novamente.", "error");
-        navigate("/");
-        return;
-      }
-
-      await api.put(
-        '/trocar-senha',
-        { senhaAtual, novaSenha },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      await api.put('/trocar-senha', { senhaAtual, novaSenha });
 
       toast("Senha alterada com sucesso!", "success");
       setSenhaAtual("");

@@ -24,7 +24,7 @@ const features = [
     to: '/investimentos',
   },
   {
-    title: 'Calculadora',
+    title: 'Juros Compostos',
     description: 'Simule juros compostos e calcule rentabilidade de possiveis ativos.',
     to: '/calculadora',
   },

@@ -6,16 +6,52 @@ const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-const fetchTransactionsByRange = async (userId, startDate, endDate) => {
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+const validateDateRange = (startDate, endDate) => {
+  if (!startDate || !endDate) {
+    return 'startDate e endDate são obrigatórios.';
+  }
+
+  if (!DATE_REGEX.test(startDate) || !DATE_REGEX.test(endDate)) {
+    return 'Informe datas válidas no formato YYYY-MM-DD.';
+  }
+
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return 'Informe um intervalo de datas válido.';
+  }
+
+  const maxRangeInDays = 366;
+  const rangeInDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+
+  if (rangeInDays > maxRangeInDays) {
+    return 'O período máximo para exportação é de 12 meses.';
+  }
+
+  return null;
+};
+
+const fetchTransactionsByRange = async (userId, startDate, endDate, categoryId) => {
+  const filters = [userId, startDate, endDate];
+  let where = `t.user_id = $1
+    AND t.data >= $2::date
+    AND t.data <= $3::date + INTERVAL '1 day' - INTERVAL '1 second'`;
+
+  if (categoryId) {
+    filters.push(categoryId);
+    where += ` AND t.category_id = $${filters.length}`;
+  }
+
   const result = await pool.query(
     `SELECT t.data, t.descricao, t.tipo, t.valor, COALESCE(c.nome, 'Sem categoria') AS categoria
      FROM transactions t
      LEFT JOIN categories c ON c.id = t.category_id
-     WHERE t.user_id = $1
-       AND t.data >= $2::date
-       AND t.data <= $3::date + INTERVAL '1 day' - INTERVAL '1 second'
+     WHERE ${where}
      ORDER BY t.data ASC`,
-    [userId, startDate, endDate]
+    filters
   );
 
   return result.rows;
@@ -23,13 +59,14 @@ const fetchTransactionsByRange = async (userId, startDate, endDate) => {
 
 router.get('/reports/export/excel', authMiddleware, async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, categoryId } = req.query;
 
-    if (!startDate || !endDate) {
-      return res.status(400).json({ mensagem: 'startDate e endDate são obrigatórios.' });
+    const rangeError = validateDateRange(startDate, endDate);
+    if (rangeError) {
+      return res.status(400).json({ mensagem: rangeError });
     }
 
-    const rows = await fetchTransactionsByRange(req.user.id, startDate, endDate);
+    const rows = await fetchTransactionsByRange(req.user.id, startDate, endDate, categoryId);
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Relatorio');
 
@@ -75,13 +112,14 @@ router.get('/reports/export/excel', authMiddleware, async (req, res) => {
 
 router.get('/reports/export/pdf', authMiddleware, async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, categoryId } = req.query;
 
-    if (!startDate || !endDate) {
-      return res.status(400).json({ mensagem: 'startDate e endDate são obrigatórios.' });
+    const rangeError = validateDateRange(startDate, endDate);
+    if (rangeError) {
+      return res.status(400).json({ mensagem: rangeError });
     }
 
-    const rows = await fetchTransactionsByRange(req.user.id, startDate, endDate);
+    const rows = await fetchTransactionsByRange(req.user.id, startDate, endDate, categoryId);
     const totalEntradas = rows
       .filter((row) => row.tipo === 'entrada')
       .reduce((acc, row) => acc + Number(row.valor), 0);

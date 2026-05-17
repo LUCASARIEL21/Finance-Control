@@ -1,9 +1,18 @@
 const { Pool } = require("pg");
 require("dotenv").config();
 
+const sslEnabled = process.env.PGSSL === "true";
+const sslRejectUnauthorized = process.env.PGSSL_REJECT_UNAUTHORIZED !== "false";
+const sslCa = process.env.PGSSL_CA ? process.env.PGSSL_CA.replace(/\\n/g, "\n") : undefined;
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.PGSSL === "true" ? { rejectUnauthorized: false } : undefined,
+  ssl: sslEnabled
+    ? {
+        rejectUnauthorized: sslRejectUnauthorized,
+        ...(sslCa ? { ca: sslCa } : {}),
+      }
+    : undefined,
 });
 
 const connectDB = async () => {

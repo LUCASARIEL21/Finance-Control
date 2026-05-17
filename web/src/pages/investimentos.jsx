@@ -30,10 +30,9 @@ function Investimentos() {
 
   const fetchData = async () => {
     try {
-      const token = localStorage.getItem('token');
       const [assetsResponse, summaryResponse] = await Promise.all([
-        api.get('/investments/assets', { headers: { Authorization: `Bearer ${token}` } }),
-        api.get('/investments/summary', { headers: { Authorization: `Bearer ${token}` } }),
+        api.get('/investments/assets'),
+        api.get('/investments/summary'),
       ]);
 
       setAssets(assetsResponse.data);
@@ -51,14 +50,11 @@ function Investimentos() {
     e.preventDefault();
 
     try {
-      const token = localStorage.getItem('token');
       await api.post('/investments/assets', {
         ...form,
         quantidade: Number(form.quantidade || 0),
         precoMedio: Number(form.precoMedio || 0),
         valorAtual: Number(form.valorAtual || 0),
-      }, {
-        headers: { Authorization: `Bearer ${token}` },
       });
 
       setForm({
@@ -79,8 +75,7 @@ function Investimentos() {
 
   const deleteAsset = async (id) => {
     try {
-      const token = localStorage.getItem('token');
-      await api.delete(`/investments/assets/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      await api.delete(`/investments/assets/${id}`);
       toast('Ativo removido.', 'success');
       fetchData();
     } catch (error) {

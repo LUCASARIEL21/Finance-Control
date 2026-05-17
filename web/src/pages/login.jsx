@@ -130,17 +130,7 @@ const Login = () => {
           senha: formData.senha
         });
 
-        if (response.data.token) {
-          try {
-            localStorage.setItem('token', response.data.token);
-            navigate('/home');
-          } catch (storageError) {
-            console.error('Erro ao acessar localStorage:', storageError);
-            toast('Erro ao armazenar sessão. Verifique as configuracoes do navegador.', 'error');
-          }
-        } else {
-          toast('Erro ao logar. Verifique suas credenciais.', 'error');
-        }
+        navigate('/home');
       }
     } catch (error) {
       console.error('Erro:', error.response?.data?.error || error.message);

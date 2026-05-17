@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import api from '../services/api';
-import { useNavigate } from 'react-router-dom';
 import { FaArrowDown, FaArrowUp, FaTrash } from 'react-icons/fa';
 import AppMenu from '../components/AppMenu';
 import { useToast } from '../components/ToastProvider';
 
 function Transacoes() {
-  const navigate = useNavigate();
   const { toast } = useToast();
+  const CREATE_CATEGORY_VALUE = '__create_category__';
 
   const [transactions, setTransactions] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -18,20 +17,15 @@ function Transacoes() {
     categoryId: '',
   });
   const [loading, setLoading] = useState(true);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [creatingCategory, setCreatingCategory] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-
-    if (!token) {
-      navigate('/');
-      return;
-    }
-
     const fetchData = async () => {
       try {
         const [txResponse, categoryResponse] = await Promise.all([
-          api.get('/transactions', { headers: { Authorization: `Bearer ${token}` } }),
-          api.get('/categories', { headers: { Authorization: `Bearer ${token}` } }),
+          api.get('/transactions'),
+          api.get('/categories'),
         ]);
 
         setTransactions(txResponse.data);
@@ -44,7 +38,7 @@ function Transacoes() {
     };
 
     fetchData();
-  }, [navigate, toast]);
+  }, [toast]);
 
   const filteredCategories = useMemo(() => {
     return categories.filter((category) => category.tipo === 'ambos' || category.tipo === form.tipo);
@@ -73,24 +67,19 @@ function Transacoes() {
 
   const addTransaction = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('token');
 
-    if (!token) {
-      navigate('/');
+    if (form.categoryId === CREATE_CATEGORY_VALUE) {
+      toast('Crie a categoria antes de salvar a transacao.', 'error');
       return;
     }
 
     try {
-      const response = await api.post(
-        '/transactions',
-        {
-          descricao: form.descricao,
-          valor: Number(form.valor),
-          tipo: form.tipo,
-          categoryId: form.categoryId || null,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await api.post('/transactions', {
+        descricao: form.descricao,
+        valor: Number(form.valor),
+        tipo: form.tipo,
+        categoryId: form.categoryId || null,
+      });
 
       setTransactions((prev) => [response.data, ...prev]);
       setForm({ descricao: '', valor: '', tipo: 'entrada', categoryId: '' });
@@ -101,17 +90,43 @@ function Transacoes() {
   };
 
   const deleteTransaction = async (id) => {
-    const token = localStorage.getItem('token');
-
     try {
-      await api.delete(`/transactions/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await api.delete(`/transactions/${id}`);
 
       setTransactions((prev) => prev.filter((item) => (item.id || item._id) !== id));
       toast('Transacao removida.', 'success');
     } catch (error) {
       toast('Erro ao remover transacao.', 'error');
+    }
+  };
+
+  const createCategory = async () => {
+    const nome = newCategoryName.trim();
+    if (!nome) {
+      toast('Digite um nome para a categoria.', 'error');
+      return;
+    }
+
+    try {
+      setCreatingCategory(true);
+      const response = await api.post('/categories', {
+        nome,
+        tipo: form.tipo,
+      });
+
+      const createdCategory = response.data;
+      setCategories((prev) => {
+        const next = [...prev, createdCategory];
+        next.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+        return next;
+      });
+      setForm((prev) => ({ ...prev, categoryId: String(createdCategory.id) }));
+      setNewCategoryName('');
+      toast('Categoria criada com sucesso.', 'success');
+    } catch (error) {
+      toast(error.response?.data?.mensagem || 'Erro ao criar categoria.', 'error');
+    } finally {
+      setCreatingCategory(false);
     }
   };
 
@@ -153,11 +168,31 @@ function Transacoes() {
             <option value="saida">Saida</option>
           </select>
           <select className="field" value={form.categoryId} onChange={(e) => setForm((prev) => ({ ...prev, categoryId: e.target.value }))}>
+            <option value={CREATE_CATEGORY_VALUE}>+ Criar categoria</option>
             <option value="">Sem categoria</option>
             {filteredCategories.map((category) => (
               <option key={category.id} value={category.id}>{category.nome}</option>
             ))}
           </select>
+
+          {form.categoryId === CREATE_CATEGORY_VALUE ? (
+            <div className="rounded-xl border border-dashed border-teal-300 bg-teal-50 p-3 sm:col-span-2 lg:col-span-5">
+              <p className="text-xs font-bold uppercase tracking-wider text-teal-700">Nova categoria</p>
+              <p className="mt-1 text-xs text-teal-700">A categoria será criada para o tipo atual ({form.tipo}) e ficará disponível em outras telas com filtro de categoria.</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  className="field min-w-[220px] flex-1"
+                  placeholder="Ex.: Supermercado"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                />
+                <button type="button" className="btn-primary" onClick={createCategory} disabled={creatingCategory}>
+                  {creatingCategory ? 'Criando...' : 'Salvar categoria'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <button type="submit" className="btn-primary lg:col-start-5">Adicionar</button>
         </form>
       </section>

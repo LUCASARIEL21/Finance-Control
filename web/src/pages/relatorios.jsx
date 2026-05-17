@@ -7,6 +7,21 @@ function Relatorios() {
   const { toast } = useToast();
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [categories, setCategories] = useState([]);
+  const [categoryId, setCategoryId] = useState('');
+
+  React.useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const response = await api.get('/categories');
+        setCategories(response.data || []);
+      } catch (error) {
+        toast('Erro ao carregar categorias dos relatorios.', 'error');
+      }
+    };
+
+    fetchCategories();
+  }, [toast]);
 
   const canExport = useMemo(() => Boolean(startDate && endDate && startDate <= endDate), [startDate, endDate]);
 
@@ -17,11 +32,18 @@ function Relatorios() {
     }
 
     try {
-      const token = localStorage.getItem('token');
       const endpoint = format === 'excel' ? '/reports/export/excel' : '/reports/export/pdf';
-      const response = await api.get(`${endpoint}?startDate=${startDate}&endDate=${endDate}`, {
+      const query = new URLSearchParams({
+        startDate,
+        endDate,
+      });
+
+      if (categoryId) {
+        query.set('categoryId', categoryId);
+      }
+
+      const response = await api.get(`${endpoint}?${query.toString()}`, {
         responseType: 'blob',
-        headers: { Authorization: `Bearer ${token}` },
       });
 
       const blob = new Blob([response.data]);
@@ -48,6 +70,12 @@ function Relatorios() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <input type="date" className="field" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <input type="date" className="field" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          <select className="field sm:col-span-2" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+            <option value="">Todas as categorias</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>{category.nome}</option>
+            ))}
+          </select>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-3">

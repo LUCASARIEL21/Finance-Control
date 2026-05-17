@@ -9,6 +9,7 @@ function ImpostoRenda() {
   const [year, setYear] = useState(currentYear);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [taxRate, setTaxRate] = useState('15');
 
   const formatMoney = (value) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
@@ -17,10 +18,7 @@ function ImpostoRenda() {
     const fetchSummary = async () => {
       try {
         setLoading(true);
-        const token = localStorage.getItem('token');
-        const response = await api.get(`/tax/summary?year=${year}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const response = await api.get(`/tax/summary?year=${year}`);
         setSummary(response.data);
       } catch (error) {
         toast('Erro ao carregar resumo de IR.', 'error');
@@ -31,6 +29,9 @@ function ImpostoRenda() {
 
     fetchSummary();
   }, [toast, year]);
+
+  const parsedTaxRate = Math.min(Math.max(Number(taxRate || 0), 0), 100);
+  const userEstimatedTax = summary ? (Number(summary.baseCalculo || 0) * parsedTaxRate) / 100 : 0;
 
   return (
     <main className="app-shell">
@@ -71,9 +72,27 @@ function ImpostoRenda() {
             <p className="text-sm font-semibold text-amber-700">Base de calculo</p>
             <p className="mt-2 text-xl font-extrabold text-amber-900">{formatMoney(summary.baseCalculo)}</p>
           </article>
-          <article className="kpi-card border-fuchsia-200 bg-fuchsia-50">
-            <p className="text-sm font-semibold text-fuchsia-700">Imposto estimado (15%)</p>
-            <p className="mt-2 text-xl font-extrabold text-fuchsia-900">{formatMoney(summary.impostoEstimado)}</p>
+          <article className="panel p-4">
+            <p className="text-sm font-semibold text-slate-700">Porcentagem de imposto</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Se você não sabe quanto pagar, pesquise rapidamente a alíquota aplicável ao seu país, ano e faixa de renda.
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                className="field max-w-[130px]"
+                value={taxRate}
+                onChange={(e) => setTaxRate(e.target.value)}
+              />
+              <span className="text-sm font-semibold text-slate-600">%</span>
+            </div>
+            <div className="mt-3 rounded-xl border border-fuchsia-200 bg-fuchsia-50 p-3">
+              <p className="text-sm font-semibold text-fuchsia-700">Imposto calculado com sua porcentagem</p>
+              <p className="mt-1 text-xl font-extrabold text-fuchsia-900">{formatMoney(userEstimatedTax)}</p>
+            </div>
           </article>
           <article className="panel p-4 sm:col-span-2 lg:col-span-1">
             <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Observacao</p>
