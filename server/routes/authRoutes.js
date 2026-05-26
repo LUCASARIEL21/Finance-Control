@@ -153,7 +153,10 @@ router.post('/login', async (req, res) => {
             maxAge: 3_600_000,
             path: '/',
         });
-        res.json({ message: 'Login realizado com sucesso.' });
+        res.json({
+            message: 'Login realizado com sucesso.',
+            token,
+        });
     } catch (error) {
         res.status(500).json({ error: "Erro no servidor" });
     }

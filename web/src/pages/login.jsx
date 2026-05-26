@@ -130,6 +130,10 @@ const Login = () => {
           senha: formData.senha
         });
 
+        if (response.data?.token) {
+          localStorage.setItem('token', response.data.token);
+        }
+
         navigate('/home');
       }
     } catch (error) {

@@ -25,6 +25,7 @@ function AppMenu() {
     } catch (_) {
       // ignore
     }
+    localStorage.removeItem('token');
     setMobileOpen(false);
     navigate('/');
   };
