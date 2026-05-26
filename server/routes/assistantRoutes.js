@@ -29,6 +29,11 @@ const OLLAMA_TEMPERATURE = Number.isFinite(Number(process.env.OLLAMA_TEMPERATURE
   : 0.15;
 const MAX_HISTORY_ITEMS = toPositiveInt(process.env.ASSISTANT_MAX_HISTORY_ITEMS, 6);
 const MODEL_CACHE_TTL_MS = toPositiveInt(process.env.OLLAMA_MODEL_CACHE_TTL_MS, 300000);
+const ASSISTANT_PROVIDER = (process.env.ASSISTANT_PROVIDER || 'ollama').toLowerCase();
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+const GROQ_BASE_URL = process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1';
+const GROQ_TIMEOUT_MS = toPositiveInt(process.env.GROQ_TIMEOUT_MS, 12000);
 
 let modelCache = {
   expiresAt: 0,
@@ -37,6 +42,17 @@ let modelCache = {
 
 const ASSISTANT_SCOPE_MESSAGE =
   'Eu so posso responder assuntos do Finance Control: transacoes, dashboard, relatorios, investimentos, imposto de renda e seus dados financeiros cadastrados.';
+
+const buildSystemPrompt = (context) => {
+  return [
+    'Você é a assistente financeira do sistema Finance Control.',
+    'Responda apenas sobre funcionalidades do sistema e dados financeiros do usuário autenticado fornecidos no contexto.',
+    'Nunca responda perguntas de assuntos gerais, políticos, código externo, medicina, direito, violência, conteúdo adulto ou temas fora do app.',
+    `Se a pergunta estiver fora do escopo, responda exatamente: ${ASSISTANT_SCOPE_MESSAGE}`,
+    'Seja objetiva, em português do Brasil, sem inventar dados e sem citar informações não presentes no contexto.',
+    `Contexto do usuário:\n${formatContextForPrompt(context)}`,
+  ].join(' ');
+};
 
 const normalizePrompt = (text = '') => text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
@@ -175,13 +191,7 @@ const resolveOllamaModel = async () => {
 
 const callOpenSourceLLM = async ({ message, history, context }) => {
   const resolvedModel = await resolveOllamaModel();
-  const systemPrompt = [
-    'Você é a assistente financeira do sistema Finance Control.',
-    'Responda apenas sobre funcionalidades do sistema e dados financeiros do usuário autenticado fornecidos no contexto.',
-    'Nunca responda perguntas de assuntos gerais, políticos, código externo, medicina, direito, violência, conteúdo adulto ou temas fora do app.',
-    `Se a pergunta estiver fora do escopo, responda exatamente: ${ASSISTANT_SCOPE_MESSAGE}`,
-    'Seja objetiva, em português do Brasil, sem inventar dados e sem citar informações não presentes no contexto.',
-  ].join(' ');
+  const systemPrompt = buildSystemPrompt(context);
 
   const payload = {
     model: resolvedModel,
@@ -194,7 +204,7 @@ const callOpenSourceLLM = async ({ message, history, context }) => {
     messages: [
       {
         role: 'system',
-        content: `${systemPrompt}\n\nContexto do usuário:\n${formatContextForPrompt(context)}`,
+        content: systemPrompt,
       },
       ...history,
       {
@@ -238,6 +248,72 @@ const callOpenSourceLLM = async ({ message, history, context }) => {
   return {
     reply: content.trim(),
     model: resolvedModel,
+    provider: 'ollama',
+  };
+};
+
+const callGroqLLM = async ({ message, history, context }) => {
+  if (!GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY não configurada.');
+  }
+
+  const systemPrompt = buildSystemPrompt(context);
+  const payload = {
+    model: GROQ_MODEL,
+    temperature: OLLAMA_TEMPERATURE,
+    max_tokens: OLLAMA_NUM_PREDICT,
+    messages: [
+      {
+        role: 'system',
+        content: systemPrompt,
+      },
+      ...history,
+      {
+        role: 'user',
+        content: message,
+      },
+    ],
+  };
+
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), GROQ_TIMEOUT_MS);
+
+  let response;
+  try {
+    response = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify(payload),
+      signal: abortController.signal,
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Timeout ao consultar Groq apos ${GROQ_TIMEOUT_MS}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Falha no Groq (${response.status}): ${errText}`);
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+
+  if (!content || typeof content !== 'string') {
+    throw new Error('Resposta inválida do Groq.');
+  }
+
+  return {
+    reply: content.trim(),
+    model: GROQ_MODEL,
+    provider: 'groq',
   };
 };
 
@@ -392,15 +468,25 @@ router.post('/assistant/chat', authMiddleware, async (req, res) => {
     const context = await getAssistantContext(req.user.id);
     let reply;
     let usedModel = 'fallback-rule-based';
+    let usedProvider = 'fallback';
 
     try {
-      const llmResult = await callOpenSourceLLM({
-        message: message.trim(),
-        history: safeHistory,
-        context,
-      });
+      const provider = ASSISTANT_PROVIDER === 'groq' ? 'groq' : 'ollama';
+      const llmResult = provider === 'groq'
+        ? await callGroqLLM({
+          message: message.trim(),
+          history: safeHistory,
+          context,
+        })
+        : await callOpenSourceLLM({
+          message: message.trim(),
+          history: safeHistory,
+          context,
+        });
+
       reply = llmResult.reply;
       usedModel = llmResult.model;
+      usedProvider = llmResult.provider;
     } catch (llmError) {
       console.error('Falha no LLM open source (fallback ativado):', llmError.message);
       reply = buildAssistantReply(message.trim(), context);
@@ -411,7 +497,7 @@ router.post('/assistant/chat', authMiddleware, async (req, res) => {
       metadata: {
         scope: 'application',
         model: usedModel,
-        provider: 'ollama',
+        provider: usedProvider,
         nome: context.nome,
         entradasMes: context.entradasMes,
         saidasMes: context.saidasMes,
