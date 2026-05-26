@@ -30,6 +30,29 @@ const envOrigins = (process.env.CORS_ORIGINS || "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+const allowVercelPreviews = process.env.CORS_ALLOW_VERCEL_PREVIEWS !== "false";
+const vercelProjectPrefix = (
+  process.env.CORS_VERCEL_PROJECT_PREFIX || "finance-control-"
+).toLowerCase();
+
+function isAllowedVercelPreview(origin) {
+  if (!allowVercelPreviews || !origin) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(origin);
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      parsed.protocol === "https:" &&
+      hostname.endsWith(".vercel.app") &&
+      hostname.startsWith(vercelProjectPrefix)
+    );
+  } catch {
+    return false;
+  }
+}
+
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   "https://finance-control-dev.netlify.app",
@@ -41,7 +64,11 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        isAllowedVercelPreview(origin)
+      ) {
         return callback(null, true);
       }
 
