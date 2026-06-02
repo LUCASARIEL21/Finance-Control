@@ -1,6 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 const { pool } = require('../database/db');
 const authMiddleware = require('../middleware/authMiddleware');
 
@@ -11,6 +13,83 @@ const NOME_REGEX = /^[A-Za-zÀ-ÖØ-öø-ÿ'\-\s]+$/u;
 
 const normalizeName = (nome) => nome.trim().replace(/\s+/g, ' ');
 const AUTH_ERROR_MESSAGE = 'Credenciais inválidas.';
+const RESET_TOKEN_TTL_MINUTES = 60;
+
+let passwordResetTableInitPromise;
+let mailTransporter;
+
+const ensurePasswordResetTable = async () => {
+    if (!passwordResetTableInitPromise) {
+        passwordResetTableInitPromise = pool.query(`
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token_hash TEXT NOT NULL,
+                expires_at TIMESTAMPTZ NOT NULL,
+                used_at TIMESTAMPTZ NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id
+                ON password_reset_tokens(user_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_password_reset_tokens_token_hash
+                ON password_reset_tokens(token_hash);
+            CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at
+                ON password_reset_tokens(expires_at);
+        `);
+    }
+
+    return passwordResetTableInitPromise;
+};
+
+const hashResetToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
+
+const getMailTransporter = () => {
+    if (mailTransporter) {
+        return mailTransporter;
+    }
+
+    const gmailUser = process.env.GMAIL_USER || 'lucas.ariel.fr@gmail.com';
+    const gmailAppPassword = process.env.GMAIL_APP_PASSWORD;
+
+    if (!gmailAppPassword) {
+        return null;
+    }
+
+    mailTransporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+            user: gmailUser,
+            pass: gmailAppPassword,
+        },
+    });
+
+    return mailTransporter;
+};
+
+const sendResetPasswordEmail = async ({ to, resetUrl }) => {
+    const transporter = getMailTransporter();
+
+    if (!transporter) {
+        throw new Error('Serviço de e-mail não configurado. Defina GMAIL_APP_PASSWORD no backend.');
+    }
+
+    const fromAddress = process.env.MAIL_FROM || process.env.GMAIL_USER || 'lucas.ariel.fr@gmail.com';
+
+    await transporter.sendMail({
+        from: fromAddress,
+        to,
+        subject: 'Redefinição de senha - Finance Control',
+        text: `Olá!\n\nRecebemos uma solicitação para redefinir sua senha.\nAcesse o link abaixo para criar uma nova senha (válido por ${RESET_TOKEN_TTL_MINUTES} minutos):\n\n${resetUrl}\n\nSe você não solicitou, ignore este e-mail.`,
+        html: `
+            <p>Olá!</p>
+            <p>Recebemos uma solicitação para redefinir sua senha.</p>
+            <p>Use o link abaixo para criar uma nova senha (válido por <strong>${RESET_TOKEN_TTL_MINUTES} minutos</strong>):</p>
+            <p><a href="${resetUrl}">${resetUrl}</a></p>
+            <p>Se você não solicitou, ignore este e-mail.</p>
+        `,
+    });
+};
 
 const isValidBirthDate = (birthDate) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return false;
@@ -171,6 +250,171 @@ router.post('/logout', (_req, res) => {
         path: '/',
     });
     res.json({ message: 'Sessão encerrada.' });
+});
+
+router.post('/forgot-password', async (req, res) => {
+    const email = req.body?.email?.trim().toLowerCase();
+
+    if (!email || !EMAIL_REGEX.test(email)) {
+        return res.status(400).json({ error: 'Informe um e-mail válido.' });
+    }
+
+    try {
+        await ensurePasswordResetTable();
+
+        const userResult = await pool.query(
+            'SELECT id, email FROM users WHERE email = $1',
+            [email]
+        );
+
+        if (userResult.rowCount > 0) {
+            const user = userResult.rows[0];
+            const rawToken = crypto.randomBytes(32).toString('hex');
+            const tokenHash = hashResetToken(rawToken);
+
+            await pool.query(
+                `DELETE FROM password_reset_tokens
+                 WHERE user_id = $1 OR expires_at <= NOW() OR used_at IS NOT NULL`,
+                [user.id]
+            );
+
+            await pool.query(
+                `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+                 VALUES ($1, $2, NOW() + ($3::text || ' minutes')::interval)`,
+                [user.id, tokenHash, String(RESET_TOKEN_TTL_MINUTES)]
+            );
+
+            const frontendBaseUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+            const resetPath = process.env.RESET_PASSWORD_PATH || '/resetar-senha';
+            const resetUrl = `${frontendBaseUrl}${resetPath}?token=${encodeURIComponent(rawToken)}`;
+
+            await sendResetPasswordEmail({ to: user.email, resetUrl });
+        }
+
+        return res.json({
+            message: 'Se o e-mail estiver cadastrado, você receberá um link para redefinir a senha.',
+        });
+    } catch (error) {
+        console.error('Erro em /forgot-password:', error);
+        return res.status(500).json({ error: 'Não foi possível processar a solicitação no momento.' });
+    }
+});
+
+router.post('/reset-password/validate', async (req, res) => {
+    const token = req.body?.token?.trim();
+
+    if (!token) {
+        return res.status(400).json({ error: 'Token inválido.' });
+    }
+
+    try {
+        await ensurePasswordResetTable();
+
+        const tokenHash = hashResetToken(token);
+        const result = await pool.query(
+            `SELECT id
+             FROM password_reset_tokens
+             WHERE token_hash = $1
+               AND used_at IS NULL
+               AND expires_at > NOW()
+             LIMIT 1`,
+            [tokenHash]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(400).json({ error: 'Link inválido ou expirado.' });
+        }
+
+        return res.json({ message: 'Token válido.' });
+    } catch (error) {
+        console.error('Erro em /reset-password/validate:', error);
+        return res.status(500).json({ error: 'Erro ao validar token.' });
+    }
+});
+
+router.post('/reset-password/confirm', async (req, res) => {
+    const token = req.body?.token?.trim();
+    const novaSenha = req.body?.novaSenha;
+    const confirmNovaSenha = req.body?.confirmNovaSenha;
+
+    if (!token || !novaSenha || !confirmNovaSenha) {
+        return res.status(400).json({ error: 'Token, nova senha e confirmação são obrigatórios.' });
+    }
+
+    if (novaSenha !== confirmNovaSenha) {
+        return res.status(400).json({ error: 'A confirmação da senha deve ser igual à senha digitada.' });
+    }
+
+    const client = await pool.connect();
+
+    try {
+        await ensurePasswordResetTable();
+        await client.query('BEGIN');
+
+        const tokenHash = hashResetToken(token);
+        const tokenResult = await client.query(
+            `SELECT prt.id, prt.user_id, u.nome, u.data_nascimento, u.senha
+             FROM password_reset_tokens prt
+             INNER JOIN users u ON u.id = prt.user_id
+             WHERE prt.token_hash = $1
+               AND prt.used_at IS NULL
+               AND prt.expires_at > NOW()
+             LIMIT 1
+             FOR UPDATE`,
+            [tokenHash]
+        );
+
+        if (tokenResult.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Link inválido ou expirado.' });
+        }
+
+        const tokenRow = tokenResult.rows[0];
+        const mesmaSenha = await bcrypt.compare(novaSenha, tokenRow.senha);
+
+        if (mesmaSenha) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'A nova senha deve ser diferente da senha atual.' });
+        }
+
+        const passwordValidationError = validateRegisterInput({
+            nome: tokenRow.nome,
+            dataNascimento: tokenRow.data_nascimento instanceof Date
+                ? tokenRow.data_nascimento.toISOString().split('T')[0]
+                : String(tokenRow.data_nascimento),
+            email: 'validacao@interna.local',
+            senha: novaSenha,
+            confirmSenha: confirmNovaSenha,
+        });
+
+        if (passwordValidationError) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: passwordValidationError });
+        }
+
+        const novaSenhaHash = await bcrypt.hash(novaSenha, 10);
+
+        await client.query(
+            'UPDATE users SET senha = $1, updated_at = NOW() WHERE id = $2',
+            [novaSenhaHash, tokenRow.user_id]
+        );
+
+        await client.query(
+            `UPDATE password_reset_tokens
+             SET used_at = NOW()
+             WHERE user_id = $1 AND used_at IS NULL`,
+            [tokenRow.user_id]
+        );
+
+        await client.query('COMMIT');
+        return res.json({ message: 'Senha redefinida com sucesso!' });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Erro em /reset-password/confirm:', error);
+        return res.status(500).json({ error: 'Não foi possível redefinir a senha.' });
+    } finally {
+        client.release();
+    }
 });
 
 router.get('/perfil', authMiddleware, async (req, res) => {

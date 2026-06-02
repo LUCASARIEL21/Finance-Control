@@ -102,6 +102,8 @@ const reportsLimiter = rateLimit({
 app.use("/api/login", authLimiter);
 app.use("/api/register", authLimiter);
 app.use("/api/trocar-senha", authLimiter);
+app.use("/api/forgot-password", authLimiter);
+app.use("/api/reset-password", authLimiter);
 app.use("/api/reports/export", reportsLimiter);
 
 app.use("/api", authRoutes);

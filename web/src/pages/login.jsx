@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { FaCheckCircle, FaCircle, FaEye, FaEyeSlash, FaLock, FaUserAlt } from 'react-icons/fa';
 import { useToast } from '../components/ToastProvider';
@@ -256,6 +256,14 @@ const Login = () => {
             <button type="submit" className="btn-primary w-full" disabled={submitting}>
               {submitting ? 'Processando...' : isLogin ? 'Entrar' : 'Cadastrar'}
             </button>
+
+            {isLogin && (
+              <p className="text-right text-sm">
+                <Link to="/esqueceu-senha" className="font-semibold text-teal-700 underline">
+                  Esqueceu a senha?
+                </Link>
+              </p>
+            )}
           </form>
 
           {isLogin && (

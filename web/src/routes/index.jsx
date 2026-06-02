@@ -1,6 +1,8 @@
 import { Routes, Route } from 'react-router-dom';
 import Home from '../pages/home';
 import Login from '../pages/login';
+import EsqueceuSenha from '../pages/esqueceuSenha';
+import ResetarSenha from '../pages/resetarSenha';
 import Perfil from '../pages/perfil';
 import Transacoes from '../pages/transacoes';
 import Dashboard from '../pages/dashboard';
@@ -13,6 +15,8 @@ function RoutesApp() {
   return (
     <Routes>
       <Route path='/' element={<Login />} />
+      <Route path='/esqueceu-senha' element={<EsqueceuSenha />} />
+      <Route path='/resetar-senha' element={<ResetarSenha />} />
       <Route path='/home' element={<Home />} />
       <Route path='/transacoes' element={<Transacoes />} />
       <Route path='/dashboard' element={<Dashboard />} />
