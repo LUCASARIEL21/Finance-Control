@@ -2,8 +2,23 @@ import axios from 'axios';
 
 const defaultApiUrl = '/api';
 
+const normalizeApiBaseUrl = (value) => {
+  if (!value) return defaultApiUrl;
+
+  const trimmed = String(value).trim().replace(/\/+$/, '');
+  if (!trimmed) return defaultApiUrl;
+
+  if (trimmed.endsWith('/api')) {
+    return trimmed;
+  }
+
+  return `${trimmed}/api`;
+};
+
+const resolvedApiUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_URL);
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || defaultApiUrl,
+  baseURL: resolvedApiUrl,
   withCredentials: true,
 });
 
