@@ -14,6 +14,7 @@ const NOME_REGEX = /^[A-Za-zÀ-ÖØ-öø-ÿ'\-\s]+$/u;
 const normalizeName = (nome) => nome.trim().replace(/\s+/g, ' ');
 const AUTH_ERROR_MESSAGE = 'Credenciais inválidas.';
 const RESET_TOKEN_TTL_MINUTES = 60;
+const MAIL_SEND_TIMEOUT_MS = Number(process.env.MAIL_SEND_TIMEOUT_MS || 8_000);
 
 let passwordResetTableInitPromise;
 let mailTransporter;
@@ -45,6 +46,27 @@ const ensurePasswordResetTable = async () => {
 
 const hashResetToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
+const withTimeout = (promise, timeoutMs, timeoutMessage) =>
+    Promise.race([
+        promise,
+        new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+        }),
+    ]);
+
+const sanitizeEnvValue = (value, { removeAllSpaces = false } = {}) => {
+    const raw = String(value || '');
+    const withoutInvisibleChars = raw.replace(/[\u200B-\u200D\uFEFF]/g, '');
+    const trimmed = withoutInvisibleChars.trim();
+    const unquoted = trimmed.replace(/^['\"]+|['\"]+$/g, '');
+
+    if (!removeAllSpaces) {
+        return unquoted;
+    }
+
+    return unquoted.replace(/\s+/g, '');
+};
+
 const maskEmail = (email) => {
     if (!email || typeof email !== 'string' || !email.includes('@')) {
         return 'email-invalido';
@@ -60,17 +82,18 @@ const getMailTransporter = () => {
         return mailTransporter;
     }
 
-    const gmailUser = (
+    const gmailUser = sanitizeEnvValue(
         process.env.GMAIL_USER ||
         process.env.SMTP_USER ||
         'lucas.ariel.fr@gmail.com'
-    ).trim();
-    const gmailAppPassword = (
+    );
+    const gmailAppPassword = sanitizeEnvValue(
         process.env.GMAIL_APP_PASSWORD ||
         process.env.SMTP_PASS ||
-        ''
-    ).replace(/\s+/g, '');
-    const smtpHost = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
+        '',
+        { removeAllSpaces: true }
+    );
+    const smtpHost = sanitizeEnvValue(process.env.SMTP_HOST || 'smtp.gmail.com');
     const smtpPort = Number(process.env.SMTP_PORT || 465);
     const smtpSecure = String(process.env.SMTP_SECURE || 'true').toLowerCase() !== 'false';
 
@@ -98,7 +121,10 @@ const getMailTransporter = () => {
         })
         .catch((error) => {
             console.error('[mail] Falha ao validar SMTP na inicialização:', error?.message || error);
-            throw error;
+            if (error?.responseCode === 535) {
+                console.error('[mail] Dica: use senha de app do Google (16 caracteres), sem aspas, sem espacos e com 2FA ativa na conta remetente.');
+            }
+            return false;
         });
 
     return mailTransporter;
@@ -112,31 +138,43 @@ const sendResetPasswordEmail = async ({ to, resetUrl }) => {
         return false;
     }
 
-    const fromAddress = (process.env.MAIL_FROM || process.env.GMAIL_USER || 'lucas.ariel.fr@gmail.com').trim();
+    const fromAddress = sanitizeEnvValue(
+        process.env.MAIL_FROM ||
+        process.env.GMAIL_USER ||
+        process.env.SMTP_USER ||
+        'lucas.ariel.fr@gmail.com'
+    );
 
     try {
         if (mailTransporterVerifyPromise) {
-            await mailTransporterVerifyPromise;
+            mailTransporterVerifyPromise.catch(() => false);
         }
 
-        await transporter.sendMail({
-            from: fromAddress,
-            to,
-            subject: 'Redefinição de senha - Finance Control',
-            text: `Olá!\n\nRecebemos uma solicitação para redefinir sua senha.\nAcesse o link abaixo para criar uma nova senha (válido por ${RESET_TOKEN_TTL_MINUTES} minutos):\n\n${resetUrl}\n\nSe você não solicitou, ignore este e-mail.`,
-            html: `
-                <p>Olá!</p>
-                <p>Recebemos uma solicitação para redefinir sua senha.</p>
-                <p>Use o link abaixo para criar uma nova senha (válido por <strong>${RESET_TOKEN_TTL_MINUTES} minutos</strong>):</p>
-                <p><a href="${resetUrl}">${resetUrl}</a></p>
-                <p>Se você não solicitou, ignore este e-mail.</p>
-            `,
-        });
+        await withTimeout(
+            transporter.sendMail({
+                from: fromAddress,
+                to,
+                subject: 'Redefinição de senha - Finance Control',
+                text: `Olá!\n\nRecebemos uma solicitação para redefinir sua senha.\nAcesse o link abaixo para criar uma nova senha (válido por ${RESET_TOKEN_TTL_MINUTES} minutos):\n\n${resetUrl}\n\nSe você não solicitou, ignore este e-mail.`,
+                html: `
+                    <p>Olá!</p>
+                    <p>Recebemos uma solicitação para redefinir sua senha.</p>
+                    <p>Use o link abaixo para criar uma nova senha (válido por <strong>${RESET_TOKEN_TTL_MINUTES} minutos</strong>):</p>
+                    <p><a href="${resetUrl}">${resetUrl}</a></p>
+                    <p>Se você não solicitou, ignore este e-mail.</p>
+                `,
+            }),
+            Number.isFinite(MAIL_SEND_TIMEOUT_MS) ? MAIL_SEND_TIMEOUT_MS : 8_000,
+            'Timeout ao enviar e-mail de redefinição.'
+        );
 
         console.log(`[mail] E-mail de redefinição enviado para ${maskEmail(to)}.`);
         return true;
     } catch (error) {
         console.error(`[mail] Erro ao enviar e-mail de redefinição para ${maskEmail(to)}:`, error?.message || error);
+        if (error?.responseCode === 535) {
+            console.error('[mail] Dica: confirme se GMAIL_USER e GMAIL_APP_PASSWORD pertencem a mesma conta Google e se a senha de app foi copiada completa.');
+        }
         return false;
     }
 };
@@ -445,7 +483,7 @@ router.post('/reset-password/confirm', async (req, res) => {
         const novaSenhaHash = await bcrypt.hash(novaSenha, 10);
 
         await client.query(
-            'UPDATE users SET senha = $1, updated_at = NOW() WHERE id = $2',
+            'UPDATE users SET senha = $1 WHERE id = $2',
             [novaSenhaHash, tokenRow.user_id]
         );
 

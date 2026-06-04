@@ -24,11 +24,15 @@ const EsqueceuSenha = () => {
 
     try {
       setSubmitting(true);
-      const response = await api.post('/forgot-password', { email: normalizedEmail });
+      const response = await api.post('/forgot-password', { email: normalizedEmail }, { timeout: 15000 });
 
       setSubmitted(true);
       toast(response.data?.message || 'Verifique seu e-mail para continuar.', 'success');
     } catch (error) {
+      if (error.code === 'ECONNABORTED') {
+        toast('A solicitação demorou demais. Tente novamente em instantes.', 'error');
+        return;
+      }
       toast(error.response?.data?.error || 'Não foi possível processar sua solicitação.', 'error');
     } finally {
       setSubmitting(false);
