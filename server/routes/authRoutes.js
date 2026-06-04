@@ -49,8 +49,8 @@ const getMailTransporter = () => {
         return mailTransporter;
     }
 
-    const gmailUser = process.env.GMAIL_USER || 'lucas.ariel.fr@gmail.com';
-    const gmailAppPassword = process.env.GMAIL_APP_PASSWORD;
+    const gmailUser = (process.env.GMAIL_USER || 'lucas.ariel.fr@gmail.com').trim();
+    const gmailAppPassword = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
 
     if (!gmailAppPassword) {
         return null;
@@ -71,24 +71,32 @@ const sendResetPasswordEmail = async ({ to, resetUrl }) => {
     const transporter = getMailTransporter();
 
     if (!transporter) {
-        throw new Error('Serviço de e-mail não configurado. Defina GMAIL_APP_PASSWORD no backend.');
+        console.error('Serviço de e-mail não configurado. Defina GMAIL_APP_PASSWORD no backend.');
+        return false;
     }
 
     const fromAddress = process.env.MAIL_FROM || process.env.GMAIL_USER || 'lucas.ariel.fr@gmail.com';
 
-    await transporter.sendMail({
-        from: fromAddress,
-        to,
-        subject: 'Redefinição de senha - Finance Control',
-        text: `Olá!\n\nRecebemos uma solicitação para redefinir sua senha.\nAcesse o link abaixo para criar uma nova senha (válido por ${RESET_TOKEN_TTL_MINUTES} minutos):\n\n${resetUrl}\n\nSe você não solicitou, ignore este e-mail.`,
-        html: `
-            <p>Olá!</p>
-            <p>Recebemos uma solicitação para redefinir sua senha.</p>
-            <p>Use o link abaixo para criar uma nova senha (válido por <strong>${RESET_TOKEN_TTL_MINUTES} minutos</strong>):</p>
-            <p><a href="${resetUrl}">${resetUrl}</a></p>
-            <p>Se você não solicitou, ignore este e-mail.</p>
-        `,
-    });
+    try {
+        await transporter.sendMail({
+            from: fromAddress,
+            to,
+            subject: 'Redefinição de senha - Finance Control',
+            text: `Olá!\n\nRecebemos uma solicitação para redefinir sua senha.\nAcesse o link abaixo para criar uma nova senha (válido por ${RESET_TOKEN_TTL_MINUTES} minutos):\n\n${resetUrl}\n\nSe você não solicitou, ignore este e-mail.`,
+            html: `
+                <p>Olá!</p>
+                <p>Recebemos uma solicitação para redefinir sua senha.</p>
+                <p>Use o link abaixo para criar uma nova senha (válido por <strong>${RESET_TOKEN_TTL_MINUTES} minutos</strong>):</p>
+                <p><a href="${resetUrl}">${resetUrl}</a></p>
+                <p>Se você não solicitou, ignore este e-mail.</p>
+            `,
+        });
+
+        return true;
+    } catch (error) {
+        console.error('Erro ao enviar e-mail de redefinição:', error);
+        return false;
+    }
 };
 
 const isValidBirthDate = (birthDate) => {
