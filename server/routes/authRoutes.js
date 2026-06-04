@@ -17,6 +17,7 @@ const RESET_TOKEN_TTL_MINUTES = 60;
 
 let passwordResetTableInitPromise;
 let mailTransporter;
+let mailTransporterVerifyPromise;
 
 const ensurePasswordResetTable = async () => {
     if (!passwordResetTableInitPromise) {
@@ -44,25 +45,61 @@ const ensurePasswordResetTable = async () => {
 
 const hashResetToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
+const maskEmail = (email) => {
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+        return 'email-invalido';
+    }
+
+    const [user, domain] = email.split('@');
+    const userVisible = user.length <= 2 ? user : `${user.slice(0, 2)}***`;
+    return `${userVisible}@${domain}`;
+};
+
 const getMailTransporter = () => {
     if (mailTransporter) {
         return mailTransporter;
     }
 
-    const gmailUser = (process.env.GMAIL_USER || 'lucas.ariel.fr@gmail.com').trim();
-    const gmailAppPassword = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, '');
+    const gmailUser = (
+        process.env.GMAIL_USER ||
+        process.env.SMTP_USER ||
+        'lucas.ariel.fr@gmail.com'
+    ).trim();
+    const gmailAppPassword = (
+        process.env.GMAIL_APP_PASSWORD ||
+        process.env.SMTP_PASS ||
+        ''
+    ).replace(/\s+/g, '');
+    const smtpHost = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
+    const smtpPort = Number(process.env.SMTP_PORT || 465);
+    const smtpSecure = String(process.env.SMTP_SECURE || 'true').toLowerCase() !== 'false';
 
     if (!gmailAppPassword) {
         return null;
     }
 
     mailTransporter = nodemailer.createTransport({
-        service: 'gmail',
+        host: smtpHost,
+        port: Number.isFinite(smtpPort) ? smtpPort : 465,
+        secure: smtpSecure,
         auth: {
             user: gmailUser,
             pass: gmailAppPassword,
         },
+        connectionTimeout: 15_000,
+        greetingTimeout: 15_000,
+        socketTimeout: 20_000,
     });
+
+    mailTransporterVerifyPromise = mailTransporter
+        .verify()
+        .then(() => {
+            console.log(`[mail] SMTP pronto para envio com ${maskEmail(gmailUser)} via ${smtpHost}:${smtpPort}.`);
+        })
+        .catch((error) => {
+            console.error('[mail] Falha ao validar SMTP na inicialização:', error?.message || error);
+            throw error;
+        });
 
     return mailTransporter;
 };
@@ -75,9 +112,13 @@ const sendResetPasswordEmail = async ({ to, resetUrl }) => {
         return false;
     }
 
-    const fromAddress = process.env.MAIL_FROM || process.env.GMAIL_USER || 'lucas.ariel.fr@gmail.com';
+    const fromAddress = (process.env.MAIL_FROM || process.env.GMAIL_USER || 'lucas.ariel.fr@gmail.com').trim();
 
     try {
+        if (mailTransporterVerifyPromise) {
+            await mailTransporterVerifyPromise;
+        }
+
         await transporter.sendMail({
             from: fromAddress,
             to,
@@ -92,9 +133,10 @@ const sendResetPasswordEmail = async ({ to, resetUrl }) => {
             `,
         });
 
+        console.log(`[mail] E-mail de redefinição enviado para ${maskEmail(to)}.`);
         return true;
     } catch (error) {
-        console.error('Erro ao enviar e-mail de redefinição:', error);
+        console.error(`[mail] Erro ao enviar e-mail de redefinição para ${maskEmail(to)}:`, error?.message || error);
         return false;
     }
 };
